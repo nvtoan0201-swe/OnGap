@@ -79,4 +79,29 @@ See `docs/superpowers/specs/2026-04-23-ongap-design.md` for architecture.
 7. Manual E2E: `npm run web` → http://localhost:3000 → login with Google → create a subject → verify row in `public.subjects` via `npx supabase studio`.
 8. Run `npm run check-domains` from your normal shell (sandbox blocks DNS) and record the result.
 
-Next: Phase 2 — Ingestion (upload + parse pipeline).
+## Phase 2 status (2026-04-23)
+
+- [x] Migration `20260423000006_document_jobs.sql` — work queue table + `claim_next_document_job` (SKIP LOCKED) + `complete_document_job` RPCs, extends `documents.status` with `parsed`
+- [x] Migration `20260423000007_storage_documents.sql` — private `documents` bucket (50 MB, PDF/DOCX/PPTX allowlist) + per-user folder RLS
+- [x] Migration `20260423000008_enqueue_rpc.sql` — `enqueue_parse_job` SECURITY DEFINER callable by web app
+- [x] Worker service-role Supabase client (`apps/worker/src/supabase/admin.ts`)
+- [x] Parsers (all unit-tested): PDF via `pdf-parse` v2 (`PDFParse` class), DOCX via `mammoth.convertToMarkdown`, PPTX via `officeparser` v6 AST → per-slide `<!-- page: N -->` markers
+- [x] OCR fallback: density heuristic (`<100 chars/page`) → `pdf-to-img` → `askClaudeVision` (writes to tmp file, Claude Code agent reads image with Read tool)
+- [x] Parse orchestrator (`pipeline/parse-document.ts`) + queue poller (`queue/poller.ts`, 5 s interval, runs `runOnce` per tick)
+- [x] Web: subject detail page (`/dashboard/subjects/[id]`) with upload form + doc list with status badges
+- [x] Web: document preview page (`/dashboard/documents/[id]`) renders parsed markdown
+- [x] Dashboard cards now link to subject detail
+- [x] Worker test suite: 9 tests green (pdf/docx/pptx parsers, ocr with mocked vision, parse-document orchestrator, poller claim/success/failure)
+- [x] Web `next build` passes, including two new dynamic routes
+
+### User action items for Phase 2 sign-off (manual, need Docker + auth)
+
+1. `npx supabase start` → apply new migrations with `npx supabase db reset`.
+2. `npm run web` + `npm run worker` in parallel terminals.
+3. Log in → create a subject → open it → upload `apps/worker/test-fixtures/sample-text.pdf`.
+4. Watch worker logs: `job claimed → parsed`. Refresh UI → status flips `pending → parsing → parsed`, "Xem" link appears.
+5. Open preview page → verify markdown contains `<!-- page: 1 -->` / `<!-- page: 2 -->` and Latin heading text.
+6. Upload a scanned PDF (or the sample.pdf rastered via ghostscript) → worker log should show `pdf density low, falling back to OCR` and per-page `ocr page` entries.
+7. Upload `sample.docx` and `sample.pptx` → should go straight to `parsed` with correct markdown.
+
+Next: Phase 3 — heading-aware chunking + batched Claude extraction + pgvector embedding.
