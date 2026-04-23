@@ -38,15 +38,17 @@ export default async function DashboardPage() {
         ) : (
           <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {subjects?.map((s) => (
-              <Card key={s.id}>
-                <CardHeader>
-                  <CardTitle>{s.name}</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  {s.code && <div>Mã: {s.code}</div>}
-                  {s.exam_date && <div>Ngày thi: {s.exam_date}</div>}
-                </CardContent>
-              </Card>
+              <Link key={s.id} href={`/dashboard/subjects/${s.id}`}>
+                <Card className="hover:border-foreground/30 transition">
+                  <CardHeader>
+                    <CardTitle>{s.name}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="text-sm text-muted-foreground">
+                    {s.code && <div>Mã: {s.code}</div>}
+                    {s.exam_date && <div>Ngày thi: {s.exam_date}</div>}
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
           </div>
         )}
