@@ -30,6 +30,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# OMC tooling state
+.omc/
+
 # Supabase
 supabase/.branches
 supabase/.temp
