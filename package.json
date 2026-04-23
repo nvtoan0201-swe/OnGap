@@ -1,0 +1,19 @@
+{
+  "name": "ongap",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ÔnGấp — AI exam cramming for Vietnamese students",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "web": "npm --workspace apps/web run dev",
+    "worker": "npm --workspace apps/worker run dev",
+    "test": "npm --workspace apps/worker run test",
+    "typecheck": "npm --workspace apps/web run typecheck && npm --workspace apps/worker run typecheck",
+    "check-domains": "node scripts/check-domains.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
