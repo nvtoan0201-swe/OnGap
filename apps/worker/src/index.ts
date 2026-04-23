@@ -1,12 +1,16 @@
+import { hostname } from "node:os";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
+import { runLoop } from "./queue/poller.js";
 
 async function main() {
-  logger.info("worker booted", {
+  const workerId = `${hostname()}-${process.pid}`;
+  logger.info("worker booting", {
     supabaseUrl: config.SUPABASE_URL,
     logLevel: config.LOG_LEVEL,
+    workerId,
   });
-  // Phase 1: prove boot + env validation. Real job loop lands in Phase 2.
+  await runLoop(workerId);
 }
 
 main().catch((err) => {
