@@ -36,6 +36,13 @@ vi.mock("../parsers/index.js", () => ({
   })),
 }));
 
+const { processDocumentMock } = vi.hoisted(() => ({
+  processDocumentMock: vi.fn(async () => {}),
+}));
+vi.mock("./process-document.js", () => ({
+  processDocument: processDocumentMock,
+}));
+
 import { parseDocument } from "./parse-document.js";
 
 describe("parseDocument", () => {
@@ -44,6 +51,7 @@ describe("parseDocument", () => {
     updateEq.mockClear();
     downloadMock.mockClear();
     singleMock.mockClear();
+    processDocumentMock.mockClear();
   });
 
   it("downloads, parses, writes parsed_markdown and sets status=parsed", async () => {

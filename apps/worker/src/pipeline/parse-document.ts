@@ -1,5 +1,6 @@
 import { admin } from "../supabase/admin.js";
 import { parseByMime, type SupportedMime } from "../parsers/index.js";
+import { processDocument } from "./process-document.js";
 import { logger } from "../logger.js";
 
 interface DocumentRow {
@@ -71,4 +72,7 @@ export async function parseDocument(documentId: string): Promise<void> {
       .eq("id", documentId);
     throw err;
   }
+
+  // Phase 3: continue into chunk/extract/embed within the same job run.
+  await processDocument(documentId);
 }

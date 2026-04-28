@@ -104,4 +104,25 @@ See `docs/superpowers/specs/2026-04-23-ongap-design.md` for architecture.
 6. Upload a scanned PDF (or the sample.pdf rastered via ghostscript) → worker log should show `pdf density low, falling back to OCR` and per-page `ocr page` entries.
 7. Upload `sample.docx` and `sample.pptx` → should go straight to `parsed` with correct markdown.
 
-Next: Phase 3 — heading-aware chunking + batched Claude extraction + pgvector embedding.
+## Phase 3 status (2026-04-28)
+
+- [x] Token approximator (`chunking/tokens.ts`, ~4 chars/token)
+- [x] Heading-aware chunker (`chunking/chunker.ts`): splits at H1/H2 boundaries, preserves heading path + `<!-- page: N -->` ranges, paragraph-level overlap (~200 tokens) when a section >3000 tokens, single `(toàn văn)` chunk for headless documents
+- [x] Extraction Zod schemas (`extraction/schemas.ts`): discriminated union `concept | example | formula`, batched per-chunk shape with strict validation
+- [x] Vietnamese extraction prompt (`extraction/prompt.ts`): "trích xuất, không tóm tắt", explicit verbatim rule, JSON-only output
+- [x] Batched extractor (`extraction/extract.ts`): Haiku 4.5 via `askClaude`, JSON array fence-tolerant, recursive half-split retry on parse/validation failure, single-chunk failure returns `[]` instead of killing the document
+- [x] Pipeline orchestrator (`pipeline/process-document.ts`): `parsed → chunking → extracting → done` with embed-and-insert into `chunks` (768d) and `entries` (768d), 5-chunk extraction batches, 50-row entry insert batches, `failed` on any error
+- [x] `parseDocument` chains into `processDocument` so the same job run goes all the way to `done`
+- [x] Worker test suite: 23 tests green (chunker × 4, extract × 4, process-document × 2, plus Phase 1/2 tests)
+
+### User action items for Phase 3 sign-off (manual, need Docker + auth + claude login)
+
+1. `npm run worker` (Phase 2 setup must already be applied).
+2. From the dashboard, upload a real slide PDF (a few hundred KB, with headings).
+3. Watch the worker logs roll through: `job claimed → parsed → chunked {chunks: N} → extracted batch → extraction complete → job done`.
+4. In Supabase Studio: `select count(*) from public.chunks where document_id = '<id>';` should return N. `select type, count(*) from public.entries where source_chunk_id in (...) group by type;` should show concept/example/formula entries with non-null `embedding`.
+5. Spot-check a concept's `payload_json -> 'definition_verbatim'` to confirm the text is verbatim from the slide (not paraphrased).
+6. Try a slide with no headings → should produce a single `(toàn văn)` chunk and still extract entries.
+7. Try an oversized single-section document → expect ≥2 chunks with overlapping paragraphs.
+
+Next: Phase 4 — coverage audit (Sonnet 4.6) + flashcard / quiz / exam-prediction generation.
