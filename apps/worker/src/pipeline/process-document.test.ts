@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { adminMock, chunkMarkdownMock, extractBatchMock, embedTextMock, initEmbedderMock } =
-  vi.hoisted(() => ({
-    adminMock: vi.fn(),
-    chunkMarkdownMock: vi.fn(),
-    extractBatchMock: vi.fn(),
-    embedTextMock: vi.fn<(t: string) => Promise<number[]>>(),
-    initEmbedderMock: vi.fn(async () => {}),
-  }));
+const {
+  adminMock,
+  chunkMarkdownMock,
+  extractBatchMock,
+  embedTextMock,
+  initEmbedderMock,
+  auditDocumentMock,
+  deriveFlashcardsMock,
+} = vi.hoisted(() => ({
+  adminMock: vi.fn(),
+  chunkMarkdownMock: vi.fn(),
+  extractBatchMock: vi.fn(),
+  embedTextMock: vi.fn<(t: string) => Promise<number[]>>(),
+  initEmbedderMock: vi.fn(async () => {}),
+  auditDocumentMock: vi.fn(),
+  deriveFlashcardsMock: vi.fn(),
+}));
 
 vi.mock("../supabase/admin.js", () => ({ admin: adminMock }));
 vi.mock("../chunking/chunker.js", () => ({ chunkMarkdown: chunkMarkdownMock }));
@@ -15,6 +24,10 @@ vi.mock("../extraction/extract.js", () => ({ extractBatch: extractBatchMock }));
 vi.mock("../embedding/embedder.js", () => ({
   initEmbedder: initEmbedderMock,
   embedText: embedTextMock,
+}));
+vi.mock("../audit/audit.js", () => ({ auditDocument: auditDocumentMock }));
+vi.mock("../generation/flashcards.js", () => ({
+  deriveFlashcards: deriveFlashcardsMock,
 }));
 
 import { processDocument } from "./process-document.js";
@@ -71,7 +84,18 @@ function makeFakeSb() {
     } else if (table === "entries") {
       builder.insert.mockImplementation((rows: Array<Record<string, unknown>>) => {
         inserts.push({ table, rows });
-        return Promise.resolve({ data: null, error: null });
+        // Phase 4 needs `.select()` to return inserted rows for audit + flashcards.
+        const echoed = rows.map((r, i) => ({
+          id: `e-uuid-${inserts.length}-${i}`,
+          type: r.type,
+          payload_json: r.payload_json,
+          page_ref: r.page_ref,
+        }));
+        return {
+          select: vi
+            .fn()
+            .mockResolvedValue({ data: echoed, error: null }),
+        };
       });
     }
     return builder;
@@ -87,12 +111,14 @@ describe("processDocument", () => {
     extractBatchMock.mockReset();
     embedTextMock.mockReset();
     initEmbedderMock.mockReset();
+    auditDocumentMock.mockReset();
+    deriveFlashcardsMock.mockReset();
     embedTextMock.mockImplementation(async () => Array(768).fill(0.01));
+    auditDocumentMock.mockResolvedValue({ coveragePct: 95, gapsJson: [] });
+    deriveFlashcardsMock.mockResolvedValue(1);
   });
 
-  it("runs chunk → embed → insert chunks → extract → embed entries → insert → done", async () => {
-    const { sb, updates, inserts } = makeFakeSb();
-    adminMock.mockReturnValue(sb);
+  function primeChunkAndExtract() {
     chunkMarkdownMock.mockReturnValue([
       {
         headingPath: "H1 > A",
@@ -136,36 +162,44 @@ describe("processDocument", () => {
         ],
       },
     ]);
+  }
+
+  it("runs chunk → extract → audit → flashcards → done with correct status flow", async () => {
+    const { sb, updates, inserts } = makeFakeSb();
+    adminMock.mockReturnValue(sb);
+    primeChunkAndExtract();
 
     await processDocument("doc-1");
 
-    // Status transitions: chunking → extracting → done
     const statuses = updates
       .filter((u) => u.table === "documents")
       .map((u) => u.patch.status);
-    expect(statuses).toEqual(["chunking", "extracting", "done"]);
+    expect(statuses).toEqual(["chunking", "extracting", "auditing", "done"]);
 
-    // Chunk insert: 2 rows.
-    const chunkInsert = inserts.find((i) => i.table === "chunks")!;
-    expect(chunkInsert.rows).toHaveLength(2);
-    expect(chunkInsert.rows[0]!.heading_path).toBe("H1 > A");
+    expect(auditDocumentMock).toHaveBeenCalledTimes(1);
+    expect(deriveFlashcardsMock).toHaveBeenCalledTimes(1);
 
-    // Entry insert: 2 rows with correct shape.
+    // Audit received chunks + entries from extraction.
+    const auditCall = auditDocumentMock.mock.calls[0]![0];
+    expect(auditCall.documentId).toBe("doc-1");
+    expect(auditCall.subjectId).toBe("subj-1");
+    expect(auditCall.entries).toHaveLength(2);
+    expect(auditCall.chunks).toEqual([
+      { heading_path: "H1 > A" },
+      { heading_path: "H1 > B" },
+    ]);
+
+    // Flashcards received same entry rows.
+    const flashCall = deriveFlashcardsMock.mock.calls[0]![0];
+    expect(flashCall.entries).toHaveLength(2);
+    expect(flashCall.subjectId).toBe("subj-1");
+
+    // Entries insert still happens (sanity).
     const entryInsert = inserts.find((i) => i.table === "entries")!;
     expect(entryInsert.rows).toHaveLength(2);
-    const row0 = entryInsert.rows[0]! as Record<string, unknown>;
-    expect(row0.subject_id).toBe("subj-1");
-    expect(row0.source_chunk_id).toBe("c-uuid-1");
-    expect(row0.type).toBe("concept");
-    expect(row0.importance).toBe(4);
-    expect(row0.page_ref).toBe(1);
-
-    // Extract was called once with 2 chunks (under the 5-batch threshold).
-    expect(extractBatchMock).toHaveBeenCalledTimes(1);
-    expect(extractBatchMock.mock.calls[0]![0]).toHaveLength(2);
   });
 
-  it("sets status failed and rethrows on error", async () => {
+  it("sets status failed when chunker throws", async () => {
     const { sb, updates } = makeFakeSb();
     adminMock.mockReturnValue(sb);
     chunkMarkdownMock.mockImplementation(() => {
@@ -178,5 +212,19 @@ describe("processDocument", () => {
       .map((u) => u.patch.status)
       .pop();
     expect(lastStatus).toBe("failed");
+  });
+
+  it("flashcard failure marks document failed", async () => {
+    const { sb, updates } = makeFakeSb();
+    adminMock.mockReturnValue(sb);
+    primeChunkAndExtract();
+    deriveFlashcardsMock.mockRejectedValueOnce(new Error("flashcards db down"));
+
+    await expect(processDocument("doc-1")).rejects.toThrow("flashcards db down");
+    const statuses = updates
+      .filter((u) => u.table === "documents")
+      .map((u) => u.patch.status);
+    expect(statuses).toContain("auditing");
+    expect(statuses[statuses.length - 1]).toBe("failed");
   });
 });

@@ -3,10 +3,19 @@ import { chunkMarkdown, type Chunk } from "../chunking/chunker.js";
 import { extractBatch } from "../extraction/extract.js";
 import type { Entry } from "../extraction/schemas.js";
 import { initEmbedder, embedText } from "../embedding/embedder.js";
+import { auditDocument } from "../audit/audit.js";
+import { deriveFlashcards } from "../generation/flashcards.js";
 import { logger } from "../logger.js";
 
 const EXTRACT_BATCH_SIZE = 5;
 const ENTRY_INSERT_BATCH = 50;
+
+interface InsertedEntry {
+  id: string;
+  type: "concept" | "example" | "formula";
+  payload_json: Record<string, unknown>;
+  page_ref: number | null;
+}
 
 interface DocumentRow {
   id: string;
@@ -86,17 +95,21 @@ async function extractAndInsertEntries(
   documentId: string,
   subjectId: string,
   chunks: InsertedChunk[],
-): Promise<number> {
+): Promise<InsertedEntry[]> {
   const sb = admin();
-  let totalEntries = 0;
+  const inserted: InsertedEntry[] = [];
   const rowBuffer: Array<Record<string, unknown>> = [];
 
   const flush = async () => {
     if (rowBuffer.length === 0) return;
     const snapshot = rowBuffer.slice();
     rowBuffer.length = 0;
-    const { error } = await sb.from("entries").insert(snapshot);
+    const { data, error } = await sb
+      .from("entries")
+      .insert(snapshot)
+      .select("id, type, payload_json, page_ref");
     if (error) throw new Error(`entries insert failed: ${error.message}`);
+    for (const row of (data ?? []) as InsertedEntry[]) inserted.push(row);
   };
 
   for (let i = 0; i < chunks.length; i += EXTRACT_BATCH_SIZE) {
@@ -126,13 +139,12 @@ async function extractAndInsertEntries(
           page_ref: entry.page ?? null,
           embedding: toVectorLiteral(vec),
         });
-        totalEntries++;
         if (rowBuffer.length >= ENTRY_INSERT_BATCH) await flush();
       }
     }
   }
   await flush();
-  return totalEntries;
+  return inserted;
 }
 
 /**
@@ -169,7 +181,25 @@ export async function processDocument(documentId: string): Promise<void> {
       doc.subject_id,
       inserted,
     );
-    logger.info("extraction complete", { documentId, entries });
+    logger.info("extraction complete", {
+      documentId,
+      entries: entries.length,
+    });
+
+    await setStatus(documentId, "auditing");
+    await auditDocument({
+      documentId,
+      subjectId: doc.subject_id,
+      chunks: inserted.map((c) => ({ heading_path: c.heading_path })),
+      entries,
+    });
+
+    const flashcards = await deriveFlashcards({
+      documentId,
+      subjectId: doc.subject_id,
+      entries,
+    });
+    logger.info("flashcards complete", { documentId, flashcards });
 
     await setStatus(documentId, "done");
   } catch (err) {

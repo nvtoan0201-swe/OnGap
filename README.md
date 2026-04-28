@@ -125,4 +125,26 @@ See `docs/superpowers/specs/2026-04-23-ongap-design.md` for architecture.
 6. Try a slide with no headings → should produce a single `(toàn văn)` chunk and still extract entries.
 7. Try an oversized single-section document → expect ≥2 chunks with overlapping paragraphs.
 
-Next: Phase 4 — coverage audit (Sonnet 4.6) + flashcard / quiz / exam-prediction generation.
+## Phase 4 status (2026-04-28)
+
+- [x] Audit Zod schemas (`audit/schemas.ts`): `coverage_pct` 0..100, `gaps[]` with `heading_path` + `reason`
+- [x] Vietnamese audit prompt (`audit/prompt.ts`): outline vs entries comparison, JSON-object output (not array)
+- [x] Coverage audit module (`audit/audit.ts`): Sonnet 4.6 via `askClaude({model:'sonnet'})`, fence-tolerant JSON-object parser, **non-fatal** on LLM/JSON failure (records `coverage_pct = 0` + empty gaps + continues)
+- [x] Flashcard derivation (`generation/flashcards.ts`): pure SQL, 1 concept entry → 1 flashcard row, idempotent (skips entries that already have a flashcard), batched insert (100 rows/batch)
+- [x] Pipeline orchestrator extended: `extracting → auditing → done`, audit + flashcards run after entries are inserted, audit failure is informational, flashcard failure marks document `failed`
+- [x] `extractAndInsertEntries` now returns inserted entries (id + type + payload + page_ref) so audit + flashcards can use them without a re-fetch
+- [x] Worker test suite: 30 tests green (audit × 3, flashcards × 4, process-document × 3, plus Phase 1-3 tests)
+
+### User action items for Phase 4 sign-off (manual, need Docker + auth + claude login)
+
+1. `npm run worker` (Phase 2/3 setup must already be applied).
+2. Re-process the same slide PDF you used for Phase 3 sign-off.
+3. Worker logs roll: `… → extraction complete → audit recorded {coveragePct: X, gaps: N} → flashcards derived {inserted: M} → job done`.
+4. Supabase Studio:
+   - `select coverage_pct, jsonb_array_length(gaps_json) from public.coverage_audits where document_id = '<id>';` → returns 1 row, coverage 0-100.
+   - `select count(*) from public.flashcards where subject_id = '<subject>';` → equals the number of `concept` entries from that document.
+   - `select front, back_verbatim, page_ref, difficulty from public.flashcards limit 5;` → spot-check that `back_verbatim` is verbatim from the slide.
+5. Re-run the same document a second time → flashcard count stays the same (idempotent skip).
+6. Force a Sonnet failure (e.g. unplug network briefly) → document still ends `done`, `coverage_audits` row still inserted with `coverage_pct = 0`.
+
+Next: Phase 5 — gap retry loop + quiz generation + UI surfaces (flashcard list, coverage badge).
