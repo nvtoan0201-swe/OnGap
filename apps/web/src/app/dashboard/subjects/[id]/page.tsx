@@ -39,6 +39,19 @@ export default async function SubjectDetailPage({ params }: PageProps) {
     .eq("subject_id", id)
     .order("created_at", { ascending: false });
 
+  const { count: flashcardCount } = await supabase
+    .from("flashcards")
+    .select("id", { count: "exact", head: true })
+    .eq("subject_id", id);
+
+  const { data: latestAudit } = await supabase
+    .from("coverage_audits")
+    .select("coverage_pct, audited_at")
+    .eq("subject_id", id)
+    .order("audited_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   return (
     <div className="min-h-screen flex flex-col">
       <SiteHeader />
@@ -53,6 +66,34 @@ export default async function SubjectDetailPage({ params }: PageProps) {
             <p className="text-muted-foreground text-sm">Ngày thi: {subject.exam_date}</p>
           )}
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Học bài</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <div className="text-sm">
+              <div className="font-medium">{flashcardCount ?? 0} flashcard</div>
+              {latestAudit?.coverage_pct != null && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  Đã phân tích {Number(latestAudit.coverage_pct).toFixed(0)}% nội dung
+                </div>
+              )}
+            </div>
+            {(flashcardCount ?? 0) > 0 ? (
+              <Link
+                href={`/dashboard/subjects/${id}/flashcards`}
+                className="inline-flex items-center justify-center rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/80"
+              >
+                Bắt đầu học
+              </Link>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Đang chờ tài liệu
+              </span>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
