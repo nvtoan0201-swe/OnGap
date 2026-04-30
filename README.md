@@ -147,4 +147,29 @@ See `docs/superpowers/specs/2026-04-23-ongap-design.md` for architecture.
 5. Re-run the same document a second time → flashcard count stays the same (idempotent skip).
 6. Force a Sonnet failure (e.g. unplug network briefly) → document still ends `done`, `coverage_audits` row still inserted with `coverage_pct = 0`.
 
-Next: Phase 5 — gap retry loop + quiz generation + UI surfaces (flashcard list, coverage badge).
+## Phase 6 status (2026-04-30)
+
+- [x] Migration `20260430000001_match_entries_rpc.sql` — `match_subject_entries(subject_id, query_embedding, k)` SQL function (security invoker, joins `entries → chunks` for `heading_path`, returns top-K by cosine distance).
+- [x] Worker chat module:
+  - `chat/prompt.ts` — Vietnamese prompt builder, verbatim rule, numbered citation blocks (`[trang N — heading]`).
+  - `chat/answer.ts` — `embed → match_subject_entries RPC → buildChatPrompt → askClaude({model:'haiku'})`. Empty-hits short-circuits to `Không tìm thấy trong tài liệu.` without calling Claude.
+  - `chat/server.ts` — `node:http` POST `/chat` (Zod-validated body, 4 KB cap, `127.0.0.1`-bound) + `GET /health`.
+- [x] Worker boot: `index.ts` starts `startChatServer(config.CHAT_PORT)` alongside the document-job poller. `CHAT_PORT` defaults to `4000`.
+- [x] Web `askChat` server action: verifies subject ownership via RLS, then forwards to `WORKER_CHAT_URL` (default `http://127.0.0.1:4000/chat`).
+- [x] Web `/dashboard/subjects/[id]/chat` SSR page + `ChatWindow` client component (form, message list, expandable citation block, error + pending states).
+- [x] Subject detail page: new "Hỏi đáp" card linking into `/chat`.
+- [x] Worker test suite: 43 tests green (chat prompt × 7, chat answer × 5, plus Phase 1–4 tests).
+- [x] Web typecheck clean.
+
+### User action items for Phase 6 sign-off (manual, need Docker + auth + claude login)
+
+1. `npx supabase db reset` (applies the new migration).
+2. `npm run worker` — boots poller + chat HTTP server (`chat server listening {port: 4000}`).
+3. `npm run web` → open a subject with at least one `done` document → click **Mở hỏi đáp** card.
+4. Ask "đệ quy là gì?" (or any topic from the slides) → answer renders with `[trang N — ...]` citations and an expandable citation list.
+5. Ask something off-topic ("Donald Trump là ai?") → expect `Không tìm thấy trong tài liệu.` with empty citation list.
+6. Open a subject with NO `done` documents → same `Không tìm thấy` answer.
+7. Try with another user's subject ID via URL guess → `Không tìm thấy môn hoặc không phải của bạn.` (RLS via the server action).
+8. Stop worker → ask a question → expect `Worker lỗi` error message in the chat window.
+
+Next: Phase 7 — quiz generation + gap retry loop.
