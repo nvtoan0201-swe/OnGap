@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SiteHeader } from "@/components/site-header";
 import { createClient } from "@/lib/supabase/server";
@@ -53,6 +54,23 @@ export default async function SubjectDetailPage({ params }: PageProps) {
             <p className="text-muted-foreground text-sm">Ngày thi: {subject.exam_date}</p>
           )}
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Hỏi đáp</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Hỏi AI bất cứ điều gì về môn này — trả lời trích nguyên văn từ slide với trang + đề mục.
+            </p>
+            <Link
+              href={`/dashboard/subjects/${subject.id}/chat`}
+              className={buttonVariants()}
+            >
+              Mở hỏi đáp
+            </Link>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
