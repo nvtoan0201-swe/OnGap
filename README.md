@@ -147,4 +147,23 @@ See `docs/superpowers/specs/2026-04-23-ongap-design.md` for architecture.
 5. Re-run the same document a second time → flashcard count stays the same (idempotent skip).
 6. Force a Sonnet failure (e.g. unplug network briefly) → document still ends `done`, `coverage_audits` row still inserted with `coverage_pct = 0`.
 
-Next: Phase 5 — gap retry loop + quiz generation + UI surfaces (flashcard list, coverage badge).
+## Phase 5 status (2026-04-30)
+
+- [x] Pure SM-2-light scheduler (`apps/web/src/lib/study/sm2.ts`): rating 1 → +5 min, 3 → +1 day, 5 → +7 day; ratings 0/2/4 reserved for future tuning.
+- [x] `submitReview` server action with RLS-trusted insert into `flashcard_reviews` + path revalidation.
+- [x] `/dashboard/subjects/[id]/flashcards` SSR page: 30-card queue (newest first), today's review count via head-only count query.
+- [x] `StudySession` client component: tap-to-flip, three-button rating (Khó / Bình thường / Thuộc), optimistic advance with `useTransition`, empty state + completion state.
+- [x] Subject detail page now shows a "Học bài" card with flashcard count, latest coverage_pct, and a primary-button link into the flashcards page.
+- [x] Vietnamese-first copy throughout. No new dependencies. No migrations.
+- [x] Typecheck clean (`npm --workspace apps/web run typecheck`).
+
+### User action items for Phase 5 sign-off (browser flow)
+
+1. `npm run web` (and `npm run worker` if you need a fresh document processed).
+2. Login → open a subject with a `done` document. The "Học bài" card should show non-zero flashcards and (if Phase 4 audit ran) a `Đã phân tích X% nội dung` line.
+3. Click **Bắt đầu học** → flip a card → click **Khó** / **Bình thường** / **Thuộc**.
+4. After each rating, expect a row in `public.flashcard_reviews` with `next_review_at` ≈ `created_at + (5min | 1d | 7d)`.
+5. Reload the flashcards page → the "đã ôn hôm nay" counter should reflect today's reviews.
+6. Edge case: open a brand-new empty subject → "Học bài" card shows `0 flashcard · Đang chờ tài liệu`; navigating directly to `/flashcards` shows the empty `StudySession` state.
+
+Next: Phase 6 — chat RAG (per-subject Q&A with verbatim citations from `entries` + `chunks`).
